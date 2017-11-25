@@ -2,8 +2,8 @@
 Type=X-XFCE-PanelPlugin
 Encoding=UTF-8
 _Name=Network Monitor
-_Comment=Show network traffic
+_Comment=Displays network traffic bars
 Icon=xfce4-netload-plugin
-X-XFCE-Module=netload
+X-XFCE-Module=appletnetspeed
 X-XFCE-Internal=FALSE
 X-XFCE-API=2.0

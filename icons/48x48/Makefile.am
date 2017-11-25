@@ -1,6 +1,6 @@
 iconsdir = $(datadir)/icons/hicolor/48x48/apps
 icons_DATA =								\
-	xfce4-netload-plugin.png
+	xfce4-applet-netspeed.png
 
 EXTRA_DIST =								\
 	$(icons_DATA)

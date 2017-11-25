@@ -2,7 +2,7 @@ ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
 
 @SET_MAKE@
 
-SUBDIRS = panel-plugin icons
+SUBDIRS = panel-plugin
 
 distclean-local:
 	rm -rf *.cache *~
@@ -17,13 +17,7 @@ ChangeLog: Makefile
 dist-hook: ChangeLog
 
 EXTRA_DIST = 								\
-	README								\
-	intltool-extract.in						\
-	intltool-merge.in						\
-	intltool-update.in
+	README
 
-DISTCLEANFILES =							\
-	intltool-extract						\
-	intltool-merge							\
-	intltool-update
+DISTCLEANFILES =
 

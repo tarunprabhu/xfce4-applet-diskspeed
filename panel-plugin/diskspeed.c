@@ -24,7 +24,7 @@
 #include <config.h>
 #endif
 
-#include "net.h"
+#include "disk.h"
 #include "utils.h"
 
 #include <glib.h>
@@ -35,9 +35,6 @@
 #include <libxfce4util/libxfce4util.h>
 
 #define BORDER 8
-
-/* Defaults */
-#define DEFAULT_TEXT N_("Net")
 
 #define INIT_MAX 4096
 #define MINIMAL_MAX 1024
@@ -56,20 +53,14 @@ static gchar *DEFAULT_COLOR[] = {"#FF4F00", "#FFE500"};
 #define TOT 2
 #define SUM 2
 
-#define APP_NAME N_("xfce4-applet-netspeed")
-
-static char *errormessages[] = {
-    N_("Unknown error."), N_("Linux proc device '/proc/net/dev' not found."),
-    N_("Interface was not found.")};
-
 typedef struct {
   gboolean auto_max;
   gulong max[SUM];
   gint update_interval;
   GdkRGBA color[SUM];
   gchar *label_text;
-  gchar *network_device;
-  gchar *old_network_device;
+  gchar *device;
+  gchar *old_device;
 } t_monitor_options;
 
 typedef struct {
@@ -82,7 +73,7 @@ typedef struct {
   t_monitor_options options;
 
   /* for the network part */
-  netdata data;
+  diskdata data;
 
   /* Displayed text */
   GtkBox *opt_vbox;
@@ -138,9 +129,9 @@ static gboolean update_monitors(t_global_monitor *global) {
   double temp;
   gint i, j;
 
-  if (!check_interface(&(global->monitor->data))) {
-    g_snprintf(caption, sizeof(caption), _("%s\n\nInterface down"),
-               get_name(&(global->monitor->data)));
+  if (!check_disk(&(global->monitor->data))) {
+    g_snprintf(caption, sizeof(caption), _("%s\nUnavailable disk"),
+               (global->monitor->data.dev_name));
     gtk_label_set_text(GTK_LABEL(global->tooltip_text), caption);
 
     return TRUE;
@@ -148,8 +139,8 @@ static gboolean update_monitors(t_global_monitor *global) {
 
   gtk_label_set_text(GTK_LABEL(global->monitor->label),
                      global->monitor->options.label_text);
-  get_current_netload(&(global->monitor->data), &(net[IN]), &(net[OUT]),
-                      &(net[TOT]));
+  get_current_diskspeed(&(global->monitor->data), &(net[IN]), &(net[OUT]),
+                        &(net[TOT]));
 
   for (i = 0; i < SUM; i++) {
     /* correct value to be from 1 ... 100 */
@@ -218,11 +209,11 @@ static gboolean update_monitors(t_global_monitor *global) {
   {
     g_snprintf(caption, sizeof(caption),
                _("%s\n\n"
-                 "Download: %s\n"
-                 "Upload: %s\n"
+                 "Read: %s\n"
+                 "Write: %s\n"
                  "---------\n"
                  "Total: %s"),
-               get_name(&(global->monitor->data)), buffer[IN],
+               global->monitor->data.dev_name, buffer[IN],
                buffer[OUT], buffer[TOT]);
     gtk_label_set_text(GTK_LABEL(global->tooltip_text), caption);
   }
@@ -317,8 +308,6 @@ static void monitor_free(XfcePanelPlugin *plugin, t_global_monitor *global) {
   gtk_widget_destroy(global->tooltip_text);
 
   g_free(global);
-
-  close_netload(&(global->monitor->data));
 }
 
 static t_global_monitor *monitor_new(XfcePanelPlugin *plugin) {
@@ -345,9 +334,9 @@ static t_global_monitor *monitor_new(XfcePanelPlugin *plugin) {
   xfce_panel_plugin_add_action_widget(plugin, global->ebox);
 
   global->monitor = g_new(t_monitor, 1);
-  global->monitor->options.label_text = g_strdup(_(DEFAULT_TEXT));
-  global->monitor->options.network_device = g_strdup("");
-  global->monitor->options.old_network_device = g_strdup("");
+  global->monitor->options.label_text = g_strdup(_("Disk"));
+  global->monitor->options.device = g_strdup("");
+  global->monitor->options.old_device = g_strdup("");
   global->monitor->options.auto_max = TRUE;
   global->monitor->options.update_interval = UPDATE_TIMEOUT;
 
@@ -427,14 +416,12 @@ static void set_progressbar_csscolor(GtkWidget *pbar, GdkRGBA *color) {
   css = g_strdup_printf(
       "progressbar progress { background-color: %s; min-height: 5px; border-radius: 1; } \
        progressbar trough { min-height: 5px; border-radius: 1; } \
-       progressbar empty { min-height: 5px; border-radius: 1; } \
-       netspeed-title { font-weight: bold; font-family: Sans; font-size: 9.8pt; }",
+       progressbar empty { min-height: 5px; border-radius: 1; }",
 #else
   css = g_strdup_printf(
       "progressbar progress { background-color: %s; min-height: 5px; } \
-      progressbar trough { min-height: 5px; border-radius: 1; } \
-      progressbar empty { min-height: 5px; border-radius: 1; } \
-      netspeed-title { font-weight: bold; font-family: Sans; font-size: 9.8pt; }",
+       progressbar trough { min-height: 5px; border-radius: 1; } \
+       progressbar empty { min-height: 5px; border-radius: 1; }",
 #endif
       gdk_rgba_to_string(color));
   DBG("setting pbar css to %s", css);
@@ -477,21 +464,20 @@ static void setup_monitor(t_global_monitor *global, gboolean supress_warnings) {
 #endif
   }
 
-  if (!init_netload(&(global->monitor->data),
-                    global->monitor->options.network_device) &&
+  if (!init_diskspeed(&(global->monitor->data),
+                      global->monitor->options.device) &&
       !supress_warnings) {
     xfce_dialog_show_error(
-        NULL, NULL, _("%s: Error in initializing:\n%s"), _(APP_NAME),
-        _(errormessages[global->monitor->data.errorcode == 0
-                            ? INTERFACE_NOT_FOUND
-                            : global->monitor->data.errorcode]));
+        NULL, NULL, _("%s: Error in initializing:\n%s"),
+        _("xfce4-applet-diskspeed"),
+        _("Disk not found"));
   }
 
-  if (global->monitor->options.old_network_device) {
-    g_free(global->monitor->options.old_network_device);
+  if (global->monitor->options.old_device) {
+    g_free(global->monitor->options.old_device);
   }
-  global->monitor->options.old_network_device =
-      g_strdup(global->monitor->options.network_device);
+  global->monitor->options.old_device =
+      g_strdup(global->monitor->options.device);
 
   monitor_set_mode(global->plugin, xfce_panel_plugin_get_mode(global->plugin),
                    global);
@@ -526,10 +512,10 @@ static void monitor_read_config(XfcePanelPlugin *plugin,
     global->monitor->options.label_text = g_strdup(value);
   }
 
-  if ((value = xfce_rc_read_entry(rc, "Network_Device", NULL)) && *value) {
-    if (global->monitor->options.network_device)
-      g_free(global->monitor->options.network_device);
-    global->monitor->options.network_device = g_strdup(value);
+  if ((value = xfce_rc_read_entry(rc, "Device", NULL)) && *value) {
+    if (global->monitor->options.device)
+      g_free(global->monitor->options.device);
+    global->monitor->options.device = g_strdup(value);
   }
   if ((value = xfce_rc_read_entry(rc, "Max_In", NULL)) != NULL) {
     global->monitor->options.max[IN] = strtol(value, NULL, 0);
@@ -575,9 +561,9 @@ static void monitor_write_config(XfcePanelPlugin *plugin,
                           ? global->monitor->options.label_text
                           : "");
 
-  xfce_rc_write_entry(rc, "Network_Device",
-                      global->monitor->options.network_device
-                          ? global->monitor->options.network_device
+  xfce_rc_write_entry(rc, "Device",
+                      global->monitor->options.device
+                          ? global->monitor->options.device
                           : "");
 
   g_snprintf(value, 20, "%lu", global->monitor->options.max[IN]);
@@ -604,10 +590,10 @@ static void monitor_apply_options(t_global_monitor *global) {
   global->monitor->options.label_text =
       g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->opt_entry)));
 
-  if (global->monitor->options.network_device) {
-    g_free(global->monitor->options.network_device);
+  if (global->monitor->options.device) {
+    g_free(global->monitor->options.device);
   }
-  global->monitor->options.network_device =
+  global->monitor->options.device =
       g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->net_entry)));
 
   for (i = 0; i < SUM; i++) {
@@ -653,16 +639,16 @@ static void max_label_changed(GtkWidget *button, t_global_monitor *global) {
   DBG("max_label_changed");
 }
 
-static void network_changed(GtkWidget *button, t_global_monitor *global) {
-  if (global->monitor->options.network_device) {
-    g_free(global->monitor->options.network_device);
+static void device_changed(GtkWidget *button, t_global_monitor *global) {
+  if (global->monitor->options.device) {
+    g_free(global->monitor->options.device);
   }
 
-  global->monitor->options.network_device =
+  global->monitor->options.device =
       g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->net_entry)));
 
   setup_monitor(global, FALSE);
-  DBG("network_changed");
+  DBG("device_changed");
 }
 
 static void max_label_toggled(GtkWidget *check_button,
@@ -783,7 +769,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
   gtk_box_pack_start(GTK_BOX(global->monitor->opt_vbox), GTK_WIDGET(net_hbox),
                      FALSE, FALSE, 0);
 
-  device_label = gtk_label_new_with_mnemonic(_("Network _device:"));
+  device_label = gtk_label_new_with_mnemonic(_("_Device:"));
   gtk_widget_set_valign(device_label, GTK_ALIGN_CENTER);
   gtk_widget_show(GTK_WIDGET(device_label));
   gtk_box_pack_start(GTK_BOX(net_hbox), GTK_WIDGET(device_label), FALSE, FALSE,
@@ -794,7 +780,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
                                 global->monitor->net_entry);
   gtk_entry_set_max_length(GTK_ENTRY(global->monitor->net_entry), MAX_LENGTH);
   gtk_entry_set_text(GTK_ENTRY(global->monitor->net_entry),
-                     global->monitor->options.network_device);
+                     global->monitor->options.device);
   gtk_widget_show(global->monitor->opt_entry);
 
   gtk_box_pack_start(GTK_BOX(net_hbox), GTK_WIDGET(global->monitor->net_entry),
@@ -944,7 +930,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
   g_signal_connect(GTK_WIDGET(global->monitor->opt_entry), "activate",
                    G_CALLBACK(label_changed), global);
   g_signal_connect(GTK_WIDGET(global->monitor->net_entry), "activate",
-                   G_CALLBACK(network_changed), global);
+                   G_CALLBACK(device_changed), global);
 
   gtk_widget_show(dlg);
 }

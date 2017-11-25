@@ -27,10 +27,11 @@
 
 #include <libxfce4util/libxfce4util.h>
 
-#include "net.h"
+#include "disk.h"
 
 #include <errno.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 /*****************************************************************************
  *
@@ -41,41 +42,18 @@
  *
  ****************************************************************************/
 
-int check_interface(netdata *data) {
+int check_disk(diskdata *data) {
   FILE *fp = NULL;
   char buf[5];
 
 #ifdef DEBUG
-  fprintf(stderr, "Checking the interface '%s' now ...\n",
+  fprintf(stderr, "Checking the disk '%s' now ...\n",
           data->ifdata.if_name);
 #endif
 
-  if (fp = fopen(data->file_operstate, "r")) {
-    fgets(buf, 4, fp);
-    if (strncmp(buf, "up", 4))
-      return TRUE;
-    fclose(fp);
-  }
-
+  if(access(data->file_stats, F_OK) == 0)
+    return TRUE;
   return FALSE;
-}
-
-/*
- * read_file()
- *
- * Read the specified file which will contain a single integer value
- *
- * Returns 0 if successful, 1 otherwise
- */
-static int read_file(const char *filename, unsigned long *out) {
-  FILE *fp = NULL;
-  if (fp = fopen(filename, "r")) {
-    fscanf(fp, "%ld", out);
-    fclose(fp);
-    return 0;
-  }
-
-  return 1;
 }
 
 /******************************************************************************
@@ -90,67 +68,62 @@ static int read_file(const char *filename, unsigned long *out) {
  *
  *****************************************************************************/
 
-int get_stat(netdata *data) {
-  int read_tx, read_rx;
-  unsigned long rx = 0, tx = 0;
+int get_stat(diskdata *data) {
+  unsigned long dump;
+  unsigned long rd = 0, wr = 0;
+  FILE* fp = NULL;
+ 
+  if(fp = fopen(data->file_stats, "r")) {
+    fscanf(fp, "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld", &dump, &dump, &rd,
+           &dump, &dump, &dump, &wr, &dump, &dump, &dump, &dump);
+    fclose(fp);
 
-  read_tx = read_file(data->file_rx_bytes, &rx);
-  read_rx = read_file(data->file_tx_bytes, &tx);
-
-  if ((read_rx == 0) && (read_tx == 0)) {
-    data->stats.rx_bytes = rx;
-    data->stats.tx_bytes = tx;
+    data->stats.rd_bytes = rd * 512;
+    data->stats.wr_bytes = wr * 512;
+   
     return 0;
   }
-
+  
   return 1;
 }
 
 /* -------------------------------------------------------------------------- */
-int init_netload(netdata *data, const char *device) {
-  const char* dir = "/sys/class/net/";
-  memset(data, 0, sizeof(netdata));
+int init_diskspeed(diskdata *data, const char *device) {
+  const char* dir = "/sys/block/";
+  memset(data, 0, sizeof(diskdata));
 
   if (device == NULL || strlen(device) == 0) {
     return TRUE;
   }
 
-  data->ip_update_count = 0;
-  data->up = FALSE;
-  data->up_update_count = 0;
-
-  g_strlcpy(data->if_name, device, INTERFACE_NAME_LENGTH);
-  g_snprintf(data->file_rx_bytes, PATH_MAX,
-           "%s/%s/statistics/%s", dir, device, "rx_bytes");
-  g_snprintf(data->file_tx_bytes, PATH_MAX,
-           "%s/%s/statistics/%s", dir, device, "tx_bytes");
-  g_snprintf(data->file_operstate, PATH_MAX,
-           "%s/%s/operstate", dir, device, "operstate");
+  g_strlcpy(data->dev_name, device, DISK_NAME_LENGTH);
+  g_snprintf(data->file_stats, PATH_MAX,
+           "%s/%s/%s", dir, device, "stat");
   
-  if (check_interface(data) != TRUE) {
-    data->correct_interface = FALSE;
+  if (check_disk(data) != TRUE) {
+    data->avail = FALSE;
     return FALSE;
   }
 
   /* init in a sane state */
   get_stat(data);
-  data->backup_in = data->stats.rx_bytes;
-  data->backup_out = data->stats.tx_bytes;
+  data->backup_in = data->stats.rd_bytes;
+  data->backup_out = data->stats.wr_bytes;
 
-  data->correct_interface = TRUE;
+  data->avail = TRUE;
 
-  DBG("The netload plugin was initialized for '%s'.", device);
+  DBG("The diskspeed plugin was initialized for '%s'.", device);
 
   return TRUE;
 }
 
 /* -------------------------------------------------------------------------- */
-void get_current_netload(netdata *data, unsigned long *in, unsigned long *out,
+void get_current_diskspeed(diskdata *data, unsigned long *in, unsigned long *out,
                          unsigned long *tot) {
   struct timeval curr_time;
   double delta_t;
 
-  if (!data->correct_interface) {
+  if (!data->avail) {
     if (in != NULL && out != NULL && tot != NULL) {
       *in = *out = *tot = 0;
     }
@@ -164,18 +137,18 @@ void get_current_netload(netdata *data, unsigned long *in, unsigned long *out,
 
   /* update */
   get_stat(data);
-  if (data->backup_in > data->stats.rx_bytes) {
-    data->cur_in = (int)(data->stats.rx_bytes / delta_t + 0.5);
+  if (data->backup_in > data->stats.rd_bytes) {
+    data->cur_in = (int)(data->stats.rd_bytes / delta_t + 0.5);
   } else {
     data->cur_in =
-        (int)((data->stats.rx_bytes - data->backup_in) / delta_t + 0.5);
+        (int)((data->stats.rd_bytes - data->backup_in) / delta_t + 0.5);
   }
 
-  if (data->backup_out > data->stats.tx_bytes) {
-    data->cur_out = (int)(data->stats.tx_bytes / delta_t + 0.5);
+  if (data->backup_out > data->stats.wr_bytes) {
+    data->cur_out = (int)(data->stats.wr_bytes / delta_t + 0.5);
   } else {
     data->cur_out =
-        (int)((data->stats.tx_bytes - data->backup_out) / delta_t + 0.5);
+        (int)((data->stats.wr_bytes - data->backup_out) / delta_t + 0.5);
   }
 
   if (in != NULL && out != NULL && tot != NULL) {
@@ -185,20 +158,11 @@ void get_current_netload(netdata *data, unsigned long *in, unsigned long *out,
   }
 
   /* save 'new old' values */
-  data->backup_in = data->stats.rx_bytes;
-  data->backup_out = data->stats.tx_bytes;
+  data->backup_in = data->stats.rd_bytes;
+  data->backup_out = data->stats.wr_bytes;
 
   /* do the same with time */
   data->prev_time.tv_sec = curr_time.tv_sec;
   data->prev_time.tv_usec = curr_time.tv_usec;
 }
 
-/* -------------------------------------------------------------------------- */
-char *get_name(netdata *data) {
-  return data->if_name;
-}
-
-/* -------------------------------------------------------------------------- */
-void close_netload(netdata *data) {
-  ;
-}

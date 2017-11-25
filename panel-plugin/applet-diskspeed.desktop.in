@@ -1,0 +1,9 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+Name=Disk Monitor
+Comment=Displays bars for I/O speed
+Icon=drive-harddisk
+X-XFCE-Module=appletdiskspeed
+X-XFCE-Internal=false
+X-XFCE-API=2.0

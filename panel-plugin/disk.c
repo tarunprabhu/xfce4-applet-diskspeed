@@ -89,7 +89,11 @@ int get_stat(diskdata *data) {
 
 /* -------------------------------------------------------------------------- */
 int init_diskspeed(diskdata *data, const char *device) {
-  const char* dir = "/sys/block/";
+  const char* dir = "/sys/block";
+  char path[PATH_MAX];
+  FILE* fp = NULL;
+  int rotational = 1;
+  
   memset(data, 0, sizeof(diskdata));
 
   if (device == NULL || strlen(device) == 0) {
@@ -112,6 +116,13 @@ int init_diskspeed(diskdata *data, const char *device) {
 
   data->avail = TRUE;
 
+  g_snprintf(path, PATH_MAX, "%s/%s/queue/rotational", dir, device);
+  if((fp = fopen(path, "r"))) {
+    fscanf(fp, "%d", &rotational);
+    fclose(fp);
+  }
+  data->ssd = !rotational;
+  
   DBG("The diskspeed plugin was initialized for '%s'.", device);
 
   return TRUE;

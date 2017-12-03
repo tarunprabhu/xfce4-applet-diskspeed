@@ -47,9 +47,9 @@ typedef struct {
   double cur_in;
   double cur_out;
   int avail;
+  int ssd;
   struct timeval prev_time;
   DataStats stats;
-  char old_disk[DISK_NAME_LENGTH];
   char dev_name[DISK_NAME_LENGTH];
   char file_stats[PATH_MAX];
 } diskdata;

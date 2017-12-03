@@ -58,9 +58,7 @@ typedef struct {
   gulong max[SUM];
   gint update_interval;
   GdkRGBA color[SUM];
-  gchar *label_text;
   gchar *device;
-  gchar *old_device;
 } t_monitor_options;
 
 typedef struct {
@@ -75,17 +73,19 @@ typedef struct {
   /* for the network part */
   diskdata data;
 
-  /* Displayed text */
+  /* Container for everything */
   GtkBox *opt_vbox;
-  GtkWidget *opt_label;
-  GtkWidget *opt_entry;
-  GtkBox *opt_hbox;
 
+  /* Title image */
+  GtkWidget* nodisk;
+  GtkWidget* sdd;
+  GtkWidget* hdd;
+  
   /* Update interval */
   GtkWidget *update_spinner;
 
-  /* Network device */
-  GtkWidget *net_entry;
+  /* Disk */
+  GtkWidget *disk_entry;
 
   /* Maximum */
   GtkWidget *max_use_label;
@@ -130,15 +130,22 @@ static gboolean update_monitors(t_global_monitor *global) {
   gint i, j;
 
   if (!check_disk(&(global->monitor->data))) {
-    g_snprintf(caption, sizeof(caption), _("%s\nUnavailable disk"),
+    g_snprintf(caption, sizeof(caption), _("Disk: %s\nUnavailable disk"),
                (global->monitor->data.dev_name));
     gtk_label_set_text(GTK_LABEL(global->tooltip_text), caption);
+    gtk_widget_hide(global->monitor->hdd);
+    gtk_widget_hide(global->monitor->sdd);
+    gtk_widget_show(global->monitor->nodisk);
 
     return TRUE;
   }
 
-  gtk_label_set_text(GTK_LABEL(global->monitor->label),
-                     global->monitor->options.label_text);
+  gtk_widget_hide(global->monitor->nodisk);
+  if(global->monitor->data.ssd)
+    gtk_widget_show(global->monitor->sdd);
+  else
+    gtk_widget_show(global->monitor->hdd);
+  
   get_current_diskspeed(&(global->monitor->data), &(net[IN]), &(net[OUT]),
                         &(net[TOT]));
 
@@ -208,7 +215,7 @@ static gboolean update_monitors(t_global_monitor *global) {
 
   {
     g_snprintf(caption, sizeof(caption),
-               _("%s\n\n"
+               _("Disk: %s\n\n"
                  "Read: %s\n"
                  "Write: %s\n"
                  "---------\n"
@@ -301,10 +308,6 @@ static void monitor_free(XfcePanelPlugin *plugin, t_global_monitor *global) {
     g_source_remove(global->timeout_id);
   }
 
-  if (global->monitor->options.label_text) {
-    g_free(global->monitor->options.label_text);
-  }
-
   gtk_widget_destroy(global->tooltip_text);
 
   g_free(global);
@@ -316,6 +319,7 @@ static t_global_monitor *monitor_new(XfcePanelPlugin *plugin) {
 #if GTK_CHECK_VERSION(3, 16, 0)
   GtkCssProvider *css_provider;
 #endif
+  GtkWidget* hdd, *sdd;
 
   global = g_new(t_global_monitor, 1);
   global->timeout_id = 0;
@@ -334,9 +338,7 @@ static t_global_monitor *monitor_new(XfcePanelPlugin *plugin) {
   xfce_panel_plugin_add_action_widget(plugin, global->ebox);
 
   global->monitor = g_new(t_monitor, 1);
-  global->monitor->options.label_text = g_strdup(_("Disk"));
   global->monitor->options.device = g_strdup("");
-  global->monitor->options.old_device = g_strdup("");
   global->monitor->options.auto_max = TRUE;
   global->monitor->options.update_interval = UPDATE_TIMEOUT;
 
@@ -358,24 +360,24 @@ static t_global_monitor *monitor_new(XfcePanelPlugin *plugin) {
   gtk_container_set_border_width(GTK_CONTAINER(global->box), 2);
   gtk_widget_show(GTK_WIDGET(global->box));
 
-  /* Create the title label */
-  global->monitor->label = gtk_label_new(global->monitor->options.label_text);
-  gtk_widget_set_name(GTK_WIDGET(global->monitor->label), "label");
-  gtk_box_pack_start(GTK_BOX(global->box), GTK_WIDGET(global->monitor->label),
-                     TRUE, FALSE, 2);
-  css_provider = gtk_css_provider_new();
-  gtk_style_context_add_provider(GTK_STYLE_CONTEXT(gtk_widget_get_style_context(
-                                     GTK_WIDGET(global->monitor->label))),
-                                 GTK_STYLE_PROVIDER(css_provider),
-                                 GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_set_data(G_OBJECT(global->monitor->label), "css_provider",
-                    css_provider);
-  gtk_css_provider_load_from_data(
-      g_object_get_data(G_OBJECT(global->monitor->label), "css_provider"),
-      "label { font-weight: Bold; \
-               font-size: 7pt; \
-               font-family: \"Bitstream Vera Sans\"; \
-               color: #696969; }", -1, NULL);
+  /* Create the title image */
+  global->monitor->nodisk = gtk_image_new_from_icon_name(
+      "dialog-warning", GTK_ICON_SIZE_LARGE_TOOLBAR);
+  gtk_box_pack_start(GTK_BOX(global->box), GTK_WIDGET(global->monitor->nodisk),
+                     FALSE, FALSE, 0);
+  gtk_widget_show(GTK_WIDGET(global->monitor->nodisk));
+
+  global->monitor->sdd = gtk_image_new_from_icon_name(
+      "drive-harddisk-solidstate", GTK_ICON_SIZE_LARGE_TOOLBAR);
+  gtk_box_pack_start(GTK_BOX(global->box), GTK_WIDGET(global->monitor->sdd),
+                     FALSE, FALSE, 0);
+  gtk_widget_hide(GTK_WIDGET(global->monitor->sdd));
+
+  global->monitor->hdd = gtk_image_new_from_icon_name(
+      "drive-harddisk", GTK_ICON_SIZE_LARGE_TOOLBAR);
+  gtk_box_pack_start(GTK_BOX(global->box), GTK_WIDGET(global->monitor->hdd),
+                     FALSE, FALSE, 0);
+  gtk_widget_hide(GTK_WIDGET(global->monitor->hdd));
 
   /* Create the progress bars */
   global->ebox_bars = gtk_event_box_new();
@@ -473,12 +475,6 @@ static void setup_monitor(t_global_monitor *global, gboolean supress_warnings) {
         _("Disk not found"));
   }
 
-  if (global->monitor->options.old_device) {
-    g_free(global->monitor->options.old_device);
-  }
-  global->monitor->options.old_device =
-      g_strdup(global->monitor->options.device);
-
   monitor_set_mode(global->plugin, xfce_panel_plugin_get_mode(global->plugin),
                    global);
 
@@ -505,11 +501,6 @@ static void monitor_read_config(XfcePanelPlugin *plugin,
   }
   if ((value = xfce_rc_read_entry(rc, "Color_Out", NULL)) != NULL) {
     gdk_rgba_parse(&global->monitor->options.color[OUT], value);
-  }
-  if ((value = xfce_rc_read_entry(rc, "Text", NULL)) && *value) {
-    if (global->monitor->options.label_text)
-      g_free(global->monitor->options.label_text);
-    global->monitor->options.label_text = g_strdup(value);
   }
 
   if ((value = xfce_rc_read_entry(rc, "Device", NULL)) && *value) {
@@ -556,11 +547,6 @@ static void monitor_write_config(XfcePanelPlugin *plugin,
   xfce_rc_write_entry(rc, "Color_Out",
                       gdk_rgba_to_string(&global->monitor->options.color[OUT]));
 
-  xfce_rc_write_entry(rc, "Text",
-                      global->monitor->options.label_text
-                          ? global->monitor->options.label_text
-                          : "");
-
   xfce_rc_write_entry(rc, "Device",
                       global->monitor->options.device
                           ? global->monitor->options.device
@@ -583,18 +569,11 @@ static void monitor_write_config(XfcePanelPlugin *plugin,
 static void monitor_apply_options(t_global_monitor *global) {
   gint i;
 
-  if (global->monitor->options.label_text) {
-    g_free(global->monitor->options.label_text);
-  }
-
-  global->monitor->options.label_text =
-      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->opt_entry)));
-
   if (global->monitor->options.device) {
     g_free(global->monitor->options.device);
   }
   global->monitor->options.device =
-      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->net_entry)));
+      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->disk_entry)));
 
   for (i = 0; i < SUM; i++) {
     global->monitor->options.max[i] =
@@ -611,19 +590,6 @@ static void monitor_apply_options(t_global_monitor *global) {
 
   setup_monitor(global, FALSE);
   DBG("monitor_apply_options_cb");
-}
-
-/* -------------------------------------------------------------------------- */
-static void label_changed(GtkWidget *button, t_global_monitor *global) {
-  if (global->monitor->options.label_text) {
-    g_free(global->monitor->options.label_text);
-  }
-
-  global->monitor->options.label_text =
-      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->opt_entry)));
-
-  setup_monitor(global, FALSE);
-  DBG("label_changed");
 }
 
 static void max_label_changed(GtkWidget *button, t_global_monitor *global) {
@@ -645,7 +611,7 @@ static void device_changed(GtkWidget *button, t_global_monitor *global) {
   }
 
   global->monitor->options.device =
-      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->net_entry)));
+      g_strdup(gtk_entry_get_text(GTK_ENTRY(global->monitor->disk_entry)));
 
   setup_monitor(global, FALSE);
   DBG("device_changed");
@@ -741,30 +707,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
   global->monitor->opt_vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 5));
   gtk_widget_show(GTK_WIDGET(global->monitor->opt_vbox));
 
-  /* Displayed text */
-  global->monitor->opt_hbox =
-      GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
-  gtk_widget_show(GTK_WIDGET(global->monitor->opt_hbox));
-
-  global->monitor->opt_label = gtk_label_new(_("Label:"));
-  gtk_widget_show(global->monitor->opt_label);
-  gtk_box_pack_start(GTK_BOX(global->monitor->opt_hbox),
-                     GTK_WIDGET(global->monitor->opt_label), FALSE, FALSE,
-                     0);
-  gtk_size_group_add_widget(sg, global->monitor->opt_label);
-
-  global->monitor->opt_entry = gtk_entry_new();
-  gtk_entry_set_max_length(GTK_ENTRY(global->monitor->opt_entry), MAX_LENGTH);
-  gtk_entry_set_text(GTK_ENTRY(global->monitor->opt_entry),
-                     global->monitor->options.label_text);
-  gtk_widget_show(global->monitor->opt_entry);
-  gtk_box_pack_start(GTK_BOX(global->monitor->opt_hbox),
-                     GTK_WIDGET(global->monitor->opt_entry), FALSE, FALSE, 0);
-
-  gtk_box_pack_start(GTK_BOX(global->monitor->opt_vbox),
-                     GTK_WIDGET(global->monitor->opt_hbox), FALSE, FALSE, 0);
-
-  /* Network device */
+  /* Disk */
   net_hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
   gtk_box_pack_start(GTK_BOX(global->monitor->opt_vbox), GTK_WIDGET(net_hbox),
                      FALSE, FALSE, 0);
@@ -775,15 +718,15 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
   gtk_box_pack_start(GTK_BOX(net_hbox), GTK_WIDGET(device_label), FALSE, FALSE,
                      0);
 
-  global->monitor->net_entry = gtk_entry_new();
+  global->monitor->disk_entry = gtk_entry_new();
   gtk_label_set_mnemonic_widget(GTK_LABEL(device_label),
-                                global->monitor->net_entry);
-  gtk_entry_set_max_length(GTK_ENTRY(global->monitor->net_entry), MAX_LENGTH);
-  gtk_entry_set_text(GTK_ENTRY(global->monitor->net_entry),
+                                global->monitor->disk_entry);
+  gtk_entry_set_max_length(GTK_ENTRY(global->monitor->disk_entry), MAX_LENGTH);
+  gtk_entry_set_text(GTK_ENTRY(global->monitor->disk_entry),
                      global->monitor->options.device);
-  gtk_widget_show(global->monitor->opt_entry);
+  gtk_widget_show(global->monitor->disk_entry);
 
-  gtk_box_pack_start(GTK_BOX(net_hbox), GTK_WIDGET(global->monitor->net_entry),
+  gtk_box_pack_start(GTK_BOX(net_hbox), GTK_WIDGET(global->monitor->disk_entry),
                      FALSE, FALSE, 0);
 
   gtk_size_group_add_widget(sg, device_label);
@@ -927,9 +870,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
                    G_CALLBACK(change_color_in), global);
   g_signal_connect(GTK_WIDGET(global->monitor->opt_button[OUT]), "color-set",
                    G_CALLBACK(change_color_out), global);
-  g_signal_connect(GTK_WIDGET(global->monitor->opt_entry), "activate",
-                   G_CALLBACK(label_changed), global);
-  g_signal_connect(GTK_WIDGET(global->monitor->net_entry), "activate",
+  g_signal_connect(GTK_WIDGET(global->monitor->disk_entry), "activate",
                    G_CALLBACK(device_changed), global);
 
   gtk_widget_show(dlg);

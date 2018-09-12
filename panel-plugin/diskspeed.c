@@ -70,7 +70,7 @@ typedef struct {
 
   t_monitor_options options;
 
-  /* for the network part */
+  /* For the disk */
   diskdata data;
 
   /* Container for everything */
@@ -130,9 +130,12 @@ static gboolean update_monitors(t_global_monitor *global) {
   gint i, j;
 
   if (!check_disk(&(global->monitor->data))) {
-    g_snprintf(caption, sizeof(caption), _("Disk: %s\nUnavailable disk"),
+    g_snprintf(caption, sizeof(caption),
+               _("<tt>%s\n"
+                 "----------------"
+                 "Unavailable disk</tt>"),
                (global->monitor->data.dev_name));
-    gtk_label_set_text(GTK_LABEL(global->tooltip_text), caption);
+    gtk_label_set_markup(GTK_LABEL(global->tooltip_text), caption);
     gtk_widget_hide(global->monitor->hdd);
     gtk_widget_hide(global->monitor->sdd);
     gtk_widget_show(global->monitor->nodisk);
@@ -215,14 +218,15 @@ static gboolean update_monitors(t_global_monitor *global) {
 
   {
     g_snprintf(caption, sizeof(caption),
-               _("Disk: %s\n\n"
-                 "Read: %s\n"
-                 "Write: %s\n"
-                 "---------\n"
-                 "Total: %s"),
+               _("<tt>/dev/%s\n"
+                 "-----------------\n"
+                 "Read   %10s\n"
+                 "Write  %10s\n"
+                 "-----------------\n"
+                 "Total  %10s</tt>"),
                global->monitor->data.dev_name, buffer[IN],
                buffer[OUT], buffer[TOT]);
-    gtk_label_set_text(GTK_LABEL(global->tooltip_text), caption);
+    gtk_label_set_markup(GTK_LABEL(global->tooltip_text), caption);
   }
 
   return TRUE;
@@ -683,7 +687,7 @@ static void monitor_create_options(XfcePanelPlugin *plugin,
 
   xfce_panel_plugin_block_menu(plugin);
 
-  dlg = xfce_titled_dialog_new_with_buttons(_("Network Monitor"), NULL,
+  dlg = xfce_titled_dialog_new_with_buttons(_("Disk Speed Monitor"), NULL,
                                             GTK_DIALOG_DESTROY_WITH_PARENT,
                                             "gtk-close", GTK_RESPONSE_OK, NULL);
 
